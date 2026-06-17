@@ -1,106 +1,75 @@
-# JP Footprint — your website, step by step
+# 👣 JP Footprint — NSE & BSE end-of-day dashboard
 
-This guide takes you from **zero** to a **live website** anyone can open in a browser.
-No coding and no command line — everything is done by clicking on websites.
-
-**Total time:** ~15 minutes. **Cost:** ₹0.
-
-You will do two things:
-1. **GitHub** — a free place to store the app's files.
-2. **Streamlit Community Cloud** — a free service that turns those files into a live website with a public link.
+A personal stock dashboard. A **JP day** is any session whose **High ends in 9.90 or 9.95**
+(e.g. 409.90, 469.95). For each JP day the app shows **+12% / −12%** off that high, finds the
+**nearest JP above and below the latest close** (resistance / support), marks days where
+**Open = High**, and shades the **3-day / 5-day lows**. Works on **Daily / Weekly / Monthly**.
 
 ---
 
-## The files in this folder
+## What's in the project
 
 | File | What it is | Touch it? |
 |---|---|---|
-| `app.py` | The website itself | No (unless you want changes) |
+| `app.py` | The website itself (layout + display) | No |
 | `jp_core.py` | The JP calculations | No |
+| `data_sources.py` | Fetches data — NSE via `nselib`, BSE via `bseindia` (no account) | No |
+| `fallback_instruments.csv` | Backup stock list, used only if the live lists can't be reached | Optional |
 | `requirements.txt` | Tells the host which tools to install | No |
-| `fallback_instruments.csv` | Backup stock list (used only if the live lists are unreachable) | Optional |
+| `.streamlit/config.toml` | Hides the top-right toolbar / GitHub "Fork" button | No |
 | `README.md` | This guide | — |
 
-Keep all five files together. You'll upload them as a group.
+Keep them together (including the `.streamlit` folder) and upload as one group.
 
 ---
 
-## Part A — Put the files on GitHub
+## Where the data comes from
 
-**A1. Create a free GitHub account**
-- Go to **https://github.com** → **Sign up**. Use your email, pick a username and password. Verify your email.
+Both feeds are by the same author (RuchiTanmay) and need **no account and no API key**:
 
-**A2. Create a new repository ("repo" = a folder for your project)**
-- Click the **+** at the top-right → **New repository**.
-- **Repository name:** `jp-footprint` (any name is fine).
-- Set it to **Public** (required for the free Streamlit plan).
-- Leave everything else as-is → click **Create repository**.
+- **NSE → `nselib`** — `price_volume_and_deliverable_position_data(symbol, from_date, to_date)`; deep history.
+- **BSE → `bseindia`** — `historical_stock_data(code, from_date, to_date)`; deep history.
 
-**A3. Upload the files**
-- On the new repo page, click **“uploading an existing file”** (it's a blue link in the middle of the page). If you don't see it, click **Add file → Upload files**.
-- Drag **all five files** from this folder into the box (or click **choose your files** and select them).
-- Wait for them to finish uploading, then click the green **Commit changes** button at the bottom.
+The two stock lists are merged by **ISIN**, so a stock listed on both exchanges shows side by side.
 
-That's it — your code now lives on GitHub.
+**Two things to know:**
+1. **Cloud reachability is the real test.** NSE/BSE can block requests from non-Indian/datacenter
+   IPs. If the dashboard loads but a panel never shows prices, that exchange is likely blocking the
+   host. NSE blocks harder than BSE. The only way to know for sure is to deploy and look.
+2. **`nselib`/`bseindia` need Python 3.10+** — set that in Streamlit's *Advanced settings* when deploying.
 
 ---
 
-## Part B — Turn it into a live website
+## Deploy it (no command line)
 
-**B1. Create a free Streamlit account**
-- Go to **https://share.streamlit.io**.
-- Click **Continue with GitHub** and approve the access request. (Signing in with GitHub means the two services can talk to each other.)
+1. Create a free **GitHub** account, then a repository (e.g. `jp-footprint`).
+2. Upload every file here, **keeping the `.streamlit/config.toml` inside a `.streamlit` folder**.
+3. Make the repo **Private** if you want to keep the code to yourself (the free Streamlit tier
+   allows one private repo). The included config already hides the "Fork"/GitHub button cosmetically.
+4. Go to **share.streamlit.io**, sign in with GitHub, click **Create app**, pick your repo and `app.py`.
+5. In **Advanced settings**, set **Python 3.11**. Click **Deploy**.
 
-**B2. Deploy your app**
-- Click **Create app** (or **New app**).
-- Choose **Deploy a public app from GitHub**.
-- **Repository:** pick `your-username/jp-footprint`.
-- **Branch:** `main`.
-- **Main file path:** `app.py`.
-- Click **Deploy**.
+Your app gets a public URL you can share. Pushing changes to GitHub updates it automatically.
 
-Streamlit now installs the tools and builds your site. The first build takes 2–5 minutes — that's normal. When it finishes you'll see your dashboard and a public URL like:
+## Run it on your own computer
 
 ```
-https://jp-footprint-yourname.streamlit.app
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
-**Share that link with anyone.** Each visitor gets their own independent view; their selections never affect anyone else's.
-
 ---
 
-## Using it
+## Notes
 
-- **Stock:** click the box and start typing a company name.
-- **Start date / Timeframe:** set the history start and switch between Daily / Weekly / Monthly.
-- Dual-listed companies show **NSE (indigo)** and **BSE (amber)** side by side; single-listed companies show one.
-- The first time a stock loads it takes a few seconds while data is fetched; after that it's cached for the day and instant.
+- **Consistent layout:** every box (price ladder, both nearest-JP cards, JP table, daily table)
+  always renders — empty when there's no data — so the page looks identical for every stock.
+- **Tables:** the JP table shows ~10 rows then scrolls; the daily table is fixed-height and scrolls.
+- **Rate limits:** NSE/BSE rate-limit; the app caches each stock for the day. If one stock fails, retry shortly.
+- **Fallback list:** if the live exchange lists can't be reached, a small bundled list is used so the
+  app still opens. Its BSE codes are best-effort for large-caps only.
+- **For research only — not investment advice.**
 
----
-
-## Changing things later (no command line)
-
-1. Go to your repo on GitHub.
-2. Click the file you want to edit (e.g. `app.py`) → click the **pencil ✏️** icon.
-3. Make your change → **Commit changes**.
-4. Your live site updates automatically within a minute.
-
-To refresh the backup stock list, edit `fallback_instruments.csv` the same way.
-
----
-
-## If something looks off
-
-- **“No data returned” / a stock won't load:** usually Yahoo Finance is briefly rate-limiting. Wait a minute and reload. If one stock never works, its Yahoo symbol may differ — note it and we'll add a mapping.
-- **Site shows “Zzz / wake app”:** on the free plan the site sleeps after a period of no visitors and takes ~30 seconds to wake. This is normal and disappears on a paid plan later.
-- **A blue “fallback list” notice appears:** the live NSE/BSE lists couldn't be reached this minute; the app is running on the bundled backup list. It clears itself on the next refresh.
-
----
-
-## Good to know for the future (monetization)
-
-- **Data licensing:** Yahoo Finance data is free for personal/prototype use, but its terms restrict commercial redistribution. Before you **charge** users, plan to switch to a licensed data feed. The app is built so swapping the data source is a small change.
-- **BSE-only stocks:** v1 covers the full NSE universe plus the BSE listing of any of those companies. Companies listed **only** on BSE (not on NSE) are a planned v2 addition via the BSE master list.
-- **Accounts & payments:** when you're ready to monetize, the usual next steps are user logins, saved watchlists, and a paywall/subscription — each of which we can add in a later version.
-
-When you're ready, tell me which direction you want to grow and we'll plan v2.
+### Before charging users (later)
+`nselib` is Apache-2.0. Confirm `bseindia`'s license on its repo, and that redistributing exchange
+data commercially is within terms, before monetising. A licensed data feed is the clean long-term path.
