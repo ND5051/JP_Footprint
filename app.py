@@ -27,7 +27,7 @@ DAILY_H = 360  # fixed, scrolls
 
 @st.cache_data(ttl=86400, show_spinner="Loading NSE + BSE instruments…")
 def load_universe():
-    return ds.load_universe_or_fallback("fallback_instruments.csv")
+    return ds.load_universe_or_fallback("bhavcopies", "fallback_instruments.csv")
 
 
 @st.cache_data(ttl=86400, show_spinner=False)

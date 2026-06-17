@@ -70,8 +70,105 @@ def df_to_ohlcv(df):
 # --------------------------------------------------------------------------- #
 #  Universe (NSE + BSE masters, merged by ISIN)
 # --------------------------------------------------------------------------- #
-def load_universe_or_fallback(fallback_path):
-    """Return (DataFrame[name, nse_symbol, bse_code, isin], notes)."""
+def _read_bhav(path):
+    """Read a UDiFF bhavcopy CSV (NSE is comma-, BSE is semicolon-separated)."""
+    import io
+    with io.open(path, encoding="utf-8", errors="ignore") as f:
+        head = f.readline()
+    sep = ";" if head.count(";") > head.count(",") else ","
+    df = pd.read_csv(path, sep=sep, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    return df
+
+
+def build_universe_from_bhavcopies(folder):
+    """Build (DataFrame[name, nse_symbol, bse_code, isin], date_str) from bhavcopy
+    files in `folder`. Equities only (ISIN starting 'INE'). Returns (None, None)
+    if no usable files are found."""
+    import glob
+    import os
+    import re
+
+    def _filedate(p):
+        m = re.search(r"(\d{8})", os.path.basename(p))
+        return m.group(1) if m else "0"
+
+    nse_files, bse_files = [], []
+    for p in glob.glob(os.path.join(folder, "*")):
+        if not p.lower().endswith(".csv"):
+            continue
+        nm = os.path.basename(p).upper()
+        try:
+            d = _read_bhav(p)
+        except Exception:  # noqa: BLE001
+            continue
+        if "ISIN" not in d.columns or "TckrSymb" not in d.columns:
+            continue
+        src = (d["Src"].iloc[0].upper() if "Src" in d.columns and len(d) else "")
+        if "NSE" in nm or src == "NSE":
+            nse_files.append((p, d))
+        elif "BSE" in nm or src == "BSE":
+            bse_files.append((p, d))
+
+    nse_files.sort(key=lambda t: _filedate(t[0]), reverse=True)
+    bse_files.sort(key=lambda t: _filedate(t[0]), reverse=True)
+    nse_d = nse_files[0][1] if nse_files else None
+    bse_d = bse_files[0][1] if bse_files else None
+    if nse_d is None and bse_d is None:
+        return None, None
+
+    nse_u = bse_u = None
+    date_str = None
+    if nse_d is not None:
+        n = nse_d[nse_d["ISIN"].str.startswith("INE", na=False)]
+        if "SctySrs" in n.columns:
+            n = n[n["SctySrs"].isin(["EQ", "BE", "SM", "ST"])]
+        nse_u = (pd.DataFrame({"name": n["FinInstrmNm"].str.strip(),
+                               "nse_symbol": n["TckrSymb"].str.strip(),
+                               "isin": n["ISIN"].str.strip()})
+                 .drop_duplicates("isin"))
+        if "TradDt" in nse_d.columns and len(nse_d):
+            date_str = str(nse_d["TradDt"].iloc[0])
+    if bse_d is not None:
+        b = bse_d[bse_d["ISIN"].str.startswith("INE", na=False)]
+        if "FinInstrmTp" in b.columns:
+            b = b[b["FinInstrmTp"] == "STK"]
+        bse_u = (pd.DataFrame({"name_b": b["FinInstrmNm"].str.strip(),
+                               "bse_code": b["FinInstrmId"].str.strip(),
+                               "isin": b["ISIN"].str.strip()})
+                 .drop_duplicates("isin"))
+        if date_str is None and "TradDt" in bse_d.columns and len(bse_d):
+            date_str = str(bse_d["TradDt"].iloc[0])
+
+    if nse_u is not None and bse_u is not None:
+        m = pd.merge(nse_u, bse_u, on="isin", how="outer")
+        m["name"] = m["name"].fillna(m["name_b"])
+    elif nse_u is not None:
+        m = nse_u.copy()
+        m["bse_code"] = None
+    else:
+        m = bse_u.rename(columns={"name_b": "name"}).copy()
+        m["nse_symbol"] = None
+
+    m = (m[["name", "nse_symbol", "bse_code", "isin"]]
+         .dropna(subset=["name"]).drop_duplicates("isin")
+         .sort_values("name").reset_index(drop=True))
+    return (m if len(m) else None), date_str
+
+
+def load_universe_or_fallback(bhav_folder, fallback_path):
+    """Universe priority: bhavcopies in repo  ->  live masters  ->  bundled list."""
+    # 1) Authoritative: bhavcopy files committed to the repo
+    try:
+        m, date_str = build_universe_from_bhavcopies(bhav_folder)
+        if m is not None:
+            note = f"Stock list from bhavcopies dated {date_str}." if date_str else \
+                   "Stock list from bhavcopies."
+            return m, [note]
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2) Live exchange masters (often blocked from cloud hosts)
     notes = []
     nse = bse = None
     try:
@@ -81,10 +178,9 @@ def load_universe_or_fallback(fallback_path):
         nse = pd.DataFrame({
             "name": e["NAME OF COMPANY"].astype(str).str.strip(),
             "nse_symbol": e["SYMBOL"].astype(str).str.strip(),
-            "isin": e["ISIN NUMBER"].astype(str).str.strip(),
-        })
+            "isin": e["ISIN NUMBER"].astype(str).str.strip()})
     except Exception:  # noqa: BLE001
-        notes.append("NSE instrument list unavailable")
+        nse = None
     try:
         import bseindia
         b = bseindia.all_listed_securities()
@@ -95,35 +191,34 @@ def load_universe_or_fallback(fallback_path):
         bse = pd.DataFrame({
             "name_b": b[name_c].astype(str).str.strip() if name_c else "",
             "bse_code": b[code_c].astype(str).str.strip() if code_c else None,
-            "isin": b[isin_c].astype(str).str.strip() if isin_c else "",
-        })
+            "isin": b[isin_c].astype(str).str.strip() if isin_c else ""})
         bse = bse[bse["isin"].str.startswith("IN", na=False)]
     except Exception:  # noqa: BLE001
-        notes.append("BSE instrument list unavailable")
+        bse = None
 
-    if nse is None and bse is None:
-        fb = pd.read_csv(fallback_path, dtype=str)
-        for c in ("nse_symbol", "bse_code", "isin"):
-            if c not in fb:
-                fb[c] = None
-        return fb[["name", "nse_symbol", "bse_code", "isin"]], [
-            "Using the bundled fallback list (live exchange lists couldn't be "
-            "reached just now)."]
+    if nse is not None or bse is not None:
+        if nse is not None and bse is not None:
+            m = pd.merge(nse, bse, on="isin", how="outer")
+            m["name"] = m["name"].fillna(m["name_b"])
+        elif nse is not None:
+            m = nse.copy()
+            m["bse_code"] = None
+        else:
+            m = bse.rename(columns={"name_b": "name"}).copy()
+            m["nse_symbol"] = None
+        m = (m[["name", "nse_symbol", "bse_code", "isin"]]
+             .dropna(subset=["name"]).drop_duplicates("isin")
+             .sort_values("name").reset_index(drop=True))
+        return m, notes
 
-    if nse is not None and bse is not None:
-        m = pd.merge(nse, bse, on="isin", how="outer")
-        m["name"] = m["name"].fillna(m["name_b"])
-    elif nse is not None:
-        m = nse.copy()
-        m["bse_code"] = None
-    else:
-        m = bse.rename(columns={"name_b": "name"}).copy()
-        m["nse_symbol"] = None
-
-    m = (m[["name", "nse_symbol", "bse_code", "isin"]]
-         .dropna(subset=["name"]).drop_duplicates("isin")
-         .sort_values("name").reset_index(drop=True))
-    return m, notes
+    # 3) Last resort: small bundled list
+    fb = pd.read_csv(fallback_path, dtype=str)
+    for c in ("nse_symbol", "bse_code", "isin"):
+        if c not in fb:
+            fb[c] = None
+    return fb[["name", "nse_symbol", "bse_code", "isin"]], [
+        "Using the small bundled list — add bhavcopy files to the 'bhavcopies' "
+        "folder in your repo for the full stock universe."]
 
 
 # --------------------------------------------------------------------------- #

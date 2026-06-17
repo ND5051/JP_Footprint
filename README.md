@@ -14,6 +14,7 @@ A personal stock dashboard. A **JP day** is any session whose **High ends in 9.9
 | `app.py` | The website itself (layout + display) | No |
 | `jp_core.py` | The JP calculations | No |
 | `data_sources.py` | Fetches data — NSE via `nselib`, BSE via `bseindia` (no account) | No |
+| `bhavcopies/` | The two daily exchange files that build the full stock list | Replace to refresh |
 | `fallback_instruments.csv` | Backup stock list, used only if the live lists can't be reached | Optional |
 | `requirements.txt` | Tells the host which tools to install | No |
 | `.streamlit/config.toml` | Hides the top-right toolbar / GitHub "Fork" button | No |
@@ -30,7 +31,16 @@ Both feeds are by the same author (RuchiTanmay) and need **no account and no API
 - **NSE → `nselib`** — `price_volume_and_deliverable_position_data(symbol, from_date, to_date)`; deep history.
 - **BSE → `bseindia`** — `historical_stock_data(code, from_date, to_date)`; deep history.
 
-The two stock lists are merged by **ISIN**, so a stock listed on both exchanges shows side by side.
+**The searchable stock list (universe)** is built from official **bhavcopy** files committed in the
+`bhavcopies/` folder — one from NSE, one from BSE. They carry every listed equity plus its **ISIN**,
+so the two exchanges are matched exactly (no guessing of BSE codes). With the included files that's
+~5,000 stocks. If the folder is empty the app tries the live exchange lists, then a tiny built-in list.
+
+### Refreshing the stock list (every few weeks is plenty — listings change slowly)
+1. Download the latest **Equity bhavcopy (UDiFF / "full")** for a recent trading day from each exchange.
+2. In your repo, open the **`bhavcopies`** folder → **Add file → Upload files** → drop in the two new
+   files → **Commit changes**. (You can leave or delete the old ones; the app uses the newest by date.)
+3. The app rebuilds the list automatically on its next load and shows the new date.
 
 **Two things to know:**
 1. **Cloud reachability is the real test.** NSE/BSE can block requests from non-Indian/datacenter
