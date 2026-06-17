@@ -104,50 +104,80 @@ def nearest_card(kind, jp):
         f"{body}</div></div>", unsafe_allow_html=True)
 
 
+def _money(v):
+    return f"₹{v:,.2f}"
+
+
+def _html_table(columns, aligns, rows_html, height):
+    head = "".join(
+        f"<th style='position:sticky;top:0;z-index:1;background:#f8fafc;padding:8px 12px;"
+        f"text-align:{al};font-size:11px;font-weight:600;color:#475569;letter-spacing:.02em;"
+        f"border-bottom:1px solid #e2e8f0'>{c}</th>"
+        for c, al in zip(columns, aligns))
+    return (f"<div style='height:{height}px;overflow:auto;border:1px solid #e2e8f0;"
+            f"border-radius:8px;background:#fff'>"
+            f"<table style='width:100%;border-collapse:collapse;font-size:13px;"
+            f"font-variant-numeric:tabular-nums'>"
+            f"<thead><tr>{head}</tr></thead><tbody>{rows_html}</tbody></table></div>")
+
+
+def _row(cells, tr_style=""):
+    tds = "".join(
+        f"<td style='padding:6px 12px;text-align:{al};white-space:nowrap;{cs}'>{val}</td>"
+        for val, al, cs in cells)
+    return f"<tr style='border-top:1px solid #f1f5f9;{tr_style}'>{tds}</tr>"
+
+
 def jp_table(a):
-    if a is None or not len(a["jp"]):
-        st.dataframe(pd.DataFrame(columns=JP_COLS), hide_index=True,
-                     use_container_width=True, height=JP_H)
-        return
-    jp = a["jp"]
-    show = jp[["Year", "Date", "High", "oh", "above12", "Low", "below12"]].copy()
-    show["Date"] = show["Date"].dt.strftime("%d-%b-%y")
-    show["oh"] = show["oh"].map({True: "↔", False: ""})
-    show.columns = JP_COLS
-    oh_mask = (show["O=H"] == "↔").values
-    sty = (show.style
-           .apply(lambda _c: ["background-color:#f5f3ff" if o else "" for o in oh_mask], axis=0)
-           .format({"High": "₹{:.2f}", "+12% High": "₹{:.2f}", "Low": "₹{:.2f}",
-                    "-12% High": "₹{:.2f}", "Year": "{:.0f}"})
-           .set_properties(subset=["+12% High"], **{"color": "#e11d48"})
-           .set_properties(subset=["-12% High"], **{"color": "#047857"}))
-    st.dataframe(sty, hide_index=True, use_container_width=True, height=JP_H)
+    cols = JP_COLS  # Year, Date, High, O=H, +12% High, Low, -12% High
+    al = ["right", "left", "right", "center", "right", "right", "right"]
+    rows = ""
+    if a is not None and len(a["jp"]):
+        for _, r in a["jp"].iterrows():
+            oh = bool(r["oh"])
+            tr = "background:#f3effe;" if oh else ""
+            cells = [
+                (f"{int(r['Year'])}", al[0], "color:#94a3b8"),
+                (r["Date"].strftime("%d-%b-%y"), al[1], ""),
+                (_money(r["High"]), al[2], "font-weight:600"),
+                ("◆" if oh else "", al[3], "color:#7c3aed;font-weight:700;font-size:14px"),
+                (_money(r["High"] * 1.12), al[4], "color:#e11d48"),
+                (_money(r["Low"]), al[5], ""),
+                (_money(r["High"] * 0.88), al[6], "color:#047857"),
+            ]
+            rows += _row(cells, tr)
+    st.markdown(_html_table(cols, al, rows, JP_H), unsafe_allow_html=True)
 
 
 def daily_table(df, a):
-    if df is None or not len(df):
-        st.dataframe(pd.DataFrame(columns=DAILY_COLS), hide_index=True,
-                     use_container_width=True, height=DAILY_H)
-        return
-    show = df.sort_values("Date", ascending=False).copy()
-    show["JP"] = show["High"].apply(lambda h: "JP" if is_jp(h) else "")
-    show["Date"] = show["Date"].dt.strftime("%d-%b-%y")
-    show["Volume"] = show["Volume"].apply(indian_num)
-    show = show[DAILY_COLS]
-    lows = df.sort_values("Date", ascending=False)["Low"].values
-    min3, min5 = a["min3"], a["min5"]
-    flags = []
-    for i, lv in enumerate(lows):
-        if i < 5 and lv == min5:
-            flags.append("background-color:#fecdd3;font-weight:600;color:#9f1239")
-        elif i < 3 and lv == min3:
-            flags.append("background-color:#ffe4e6;color:#be123c")
-        else:
-            flags.append("")
-    sty = (show.style
-           .apply(lambda _c: flags, axis=0, subset=["Low"])
-           .format({"Open": "₹{:.2f}", "High": "₹{:.2f}", "Low": "₹{:.2f}", "Close": "₹{:.2f}"}))
-    st.dataframe(sty, hide_index=True, use_container_width=True, height=DAILY_H)
+    cols = DAILY_COLS  # Date, Open, High, Low, Close, Volume, JP
+    al = ["left", "right", "right", "right", "right", "right", "center"]
+    rows = ""
+    if df is not None and len(df):
+        d = df.sort_values("Date", ascending=False).reset_index(drop=True)
+        min3 = a["min3"] if a else None
+        min5 = a["min5"] if a else None
+        for i, r in d.iterrows():
+            jp = is_jp(r["High"])
+            tr = "background:#eef2ff;" if jp else ""
+            lv = r["Low"]
+            low_cs = ""
+            if min5 is not None and i < 5 and lv == min5:
+                low_cs = "background:#fb9aae;color:#7f1d34;font-weight:700"
+            elif min3 is not None and i < 3 and lv == min3:
+                low_cs = "background:#ffe1e6;color:#be123c;font-weight:600"
+            vol = indian_num(r["Volume"]) if pd.notna(r["Volume"]) else ""
+            cells = [
+                (r["Date"].strftime("%d-%b-%y"), al[0], ""),
+                (_money(r["Open"]), al[1], ""),
+                (_money(r["High"]), al[2], ""),
+                (_money(r["Low"]), al[3], low_cs),
+                (_money(r["Close"]), al[4], "font-weight:600"),
+                (vol, al[5], "color:#64748b"),
+                ("JP" if jp else "", al[6], "color:#4f46e5;font-weight:700"),
+            ]
+            rows += _row(cells, tr)
+    st.markdown(_html_table(cols, al, rows, DAILY_H), unsafe_allow_html=True)
 
 
 def exchange_panel(symbol, label, accent, start, end, tf, fetch_fn):

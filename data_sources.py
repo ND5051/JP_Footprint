@@ -162,9 +162,7 @@ def load_universe_or_fallback(bhav_folder, fallback_path):
     try:
         m, date_str = build_universe_from_bhavcopies(bhav_folder)
         if m is not None:
-            note = f"Stock list from bhavcopies dated {date_str}." if date_str else \
-                   "Stock list from bhavcopies."
-            return m, [note]
+            return m, []
     except Exception:  # noqa: BLE001
         pass
 
