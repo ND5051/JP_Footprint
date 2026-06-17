@@ -1,4 +1,5 @@
 [client]
+# Hide the Streamlit toolbar / "Fork" + developer menu in the top-right.
 toolbarMode = "minimal"
 
 [browser]
